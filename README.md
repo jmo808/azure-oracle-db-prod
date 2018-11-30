@@ -2,10 +2,16 @@
 
 ## Install Azure Ansible Package
 
+Ubuntu
 ``` 
 sudo apt install pip
 pip install ansible[azure]
 ``` 
+RedHat
+```
+yum install pip
+pip install ansible[azure]
+```
 
 ## Install Azure CLI
 [RedHat](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-yum?view=azure-cli-latest)
