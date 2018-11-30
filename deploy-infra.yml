@@ -1,0 +1,66 @@
+- name: Create Oracle DB VM for Cenovus
+  hosts: localhost
+  connection: local
+  vars_files:
+    - secrets.yml
+    - properties.yml
+  tasks:
+  - name: Create virtual network inteface card
+    azure_rm_networkinterface:
+      location: "{{ location }}"
+      resource_group: "{{ resourcegroup }}"
+      name: "{{ vmname }}-nic-01"
+      virtual_network:
+        name: "{{ existingvnet }}"
+        resource_group: "{{ vnetresourcegroup }}"
+      subnet: "{{ subnet }}"
+      create_with_security_group: False
+      ip_configurations:
+        - name: ipconfig1
+          private_ip_allocation_method: Static
+          private_ip_address: "{{ privateip }}"
+          primary: True
+  - name: Create VM
+    azure_rm_virtualmachine:
+      resource_group: "{{ resourcegroup }}"
+      location: "{{ location }}"
+      name: "{{ vmname }}"
+      vm_size: "{{ vmsize }}"
+      managed_disk_type: "Premium_LRS"
+      admin_username: "vmadmin"
+      admin_password: "{{ vmpassword }}"
+      ssh_password_enabled: true
+      network_interfaces: "{{ vmname }}-nic-01"
+      image:
+        offer: RHEL
+        publisher: RedHat
+        sku: '7.4'
+        version: latest
+  - name: Create and attach managed disks
+    azure_rm_managed_disk:
+      name: "{{ item.name }}"
+      location: "{{ location }}"
+      resource_group: "{{ resourcegroup }}"
+      storage_account_type: "Premium_LRS"
+      disk_size_gb: "{{ item.size }}"
+      managed_by: "{{ vmname }}"
+    loop:
+      - { name: oradata1, size: 520 }
+      - { name: oradata2, size: 520 }
+      - { name: oradata3, size: 520 }
+      - { name: oradata4, size: 520 }
+      - { name: oradata5, size: 520 }
+      - { name: archivelog1, size: 520 }
+      - { name: archivelog2, size: 520 }
+      - { name: archivelog3, size: 520 }
+      - { name: rman1, size: 1024 }
+      - { name: rman2, size: 1024 }
+  - name: Add Host
+    add_host:
+      name: oradb
+      ansible_host: "{{ privateip }}"
+      ansible_user: vmadmin
+      ansible_ssh_pass: "{{ vmpassword }}"
+      ansible_become_pass: "{{ vmpassword }}"
+  - name: Write the host key to known hosts
+    shell: "ssh-keyscan -H {{ privateip }} >> ~/.ssh/known_hosts"

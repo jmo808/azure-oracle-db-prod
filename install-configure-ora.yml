@@ -1,0 +1,181 @@
+- name: Install and Configure Oracle
+  hosts: oradb
+  become: yes
+  become_user: oracle
+  vars_files:
+    - secrets.yml
+    - properties.yml
+  tasks:
+    - name: Create Install Folder
+      file:
+        state: directory
+        path:  /oracle/app/installation
+    - name: Fix Mount Point Permissions
+      file:
+        path: "{{ item.dir }}"
+        owner: oracle
+        group: oinstall
+      become_user: root
+      loop:
+        - { dir: /oradata }
+        - { dir: /rman }
+        - { dir: /archivelog }
+    - name: Download and Extract Oracle Software
+      unarchive:
+        src: "{{ oraclebin1 }}"
+        dest: /oracle/app/installation/
+        remote_src: True
+    - name: Generate Response file
+      copy:
+        dest: /oracle/app/installation/db_install.rsp
+        content: "
+          oracle.install.responseFileVersion=/oracle/install/rspfmt_dbinstall_response_schema_v12.1.0\n
+          oracle.install.option=INSTALL_DB_SWONLY\n
+          UNIX_GROUP_NAME=oinstall\n
+          INVENTORY_LOCATION=/oracle/app/inventory\n
+          SELECTED_LANGUAGES=all_langs\n
+          ORACLE_HOME=/oracle/app/oracle/product/12.1.0.2/dbhome_1\n
+          ORACLE_BASE=/oracle/app\n
+          oracle.install.db.InstallEdition=EE\n
+          oracle.install.db.DBA_GROUP=dba\n
+          oracle.install.db.OPER_GROUP=oper\n
+          oracle.install.db.BACKUPDBA_GROUP=dba\n
+          oracle.install.db.DGDBA_GROUP=dba\n
+          oracle.install.db.KMDBA_GROUP=dba\n
+          oracle.install.db.config.starterdb.type=GENERAL_PURPOSE\n
+          oracle.install.db.config.starterdb.globalDBName=orcl.oradb3.private\n
+          oracle.install.db.config.starterdb.SID=orc1\n
+          oracle.install.db.config.starterdb.characterSet=AL32UTF8\n
+          oracle.install.db.config.starterdb.memoryOption=true\n
+          oracle.install.db.config.starterdb.memoryLimit=65024\n
+          oracle.install.db.config.starterdb.password.ALL={{ oraclepass }}\n
+          oracle.install.db.config.starterdb.managementOption=DEFAULT\n
+          oracle.install.db.config.starterdb.enableRecovery=true\n
+          oracle.install.db.config.starterdb.storageType=FILE_SYSTEM_STORAGE\n
+          oracle.install.db.config.starterdb.fileSystemStorage.dataLocation=/oradata\n
+          oracle.install.db.config.starterdb.fileSystemStorage.recoveryLocation=/rman\n
+          DECLINE_SECURITY_UPDATES=true\n"
+    - name: Install Oracle
+      command: "/oracle/app/installation/database/runInstaller -silent -ignorePrereq -ignoreSysPrereqs -waitforcompletion -responseFile /oracle/app/installation/db_install.rsp"
+    - name: Execute Inventory Root Command
+      command: "/oracle/app/inventory/orainstRoot.sh"
+      become_user: root
+    - name: Execute DB home Root Command
+      command: "/oracle/app/oracle/product/12.1.0.2/dbhome_1/root.sh"
+      become_user: root
+    - name: Create Listener Response File
+      copy:
+        dest: /oracle/app/installation/netca.rsp
+        content: "
+          [GENERAL]\n
+          RESPONSEFILE_VERSION=\"12.1\"\n
+          CREATE_TYPE=\"CUSTOM\"\n
+          INSTALLED_COMPONENTS={\"server\",\"net8\",\"javavm\"}\n
+          INSTALL_TYPE=\"\"typical\"\"\n
+          LISTENER_NUMBER=1\n
+          LISTENER_NAMES={\"LISTENER\"}\n
+          LISTENER_PROTOCOLS={\"TCP;1521\"}\n
+          LISTENER_START=\"\"LISTENER\"\"\n
+          NAMING_METHODS={\"TNSNAMES\",\"ONAMES\",\"HOSTNAME\"}\n
+          NSN_NUMBER=1\n
+          NSN_NAMES={\"EXTPROC_CONNECTION_DATA\"}\n
+          NSN_SERVICE={\"PLSExtProc\"}\n
+          NSN_PROTOCOLS={\"TCP;HOSTNAME;1521\"}\n"
+    - name: Create Listener from netca
+      command: '/oracle/app/oracle/product/12.1.0.2/dbhome_1/bin/netca -silent -responseFile /oracle/app/installation/netca.rsp'
+    - name: Create Response File for dbca
+      copy:
+        dest: /oracle/app/installation/dbca.rsp
+        content: "
+          [GENERAL]\n
+          RESPONSEFILE_VERSION = \"12.1.0\"\n
+          OPERATION_TYPE = \"createDatabase\"\n
+          [CREATEDATABASE]\n
+          GDBNAME = orcl.oradb3.private\n
+          SID = orc1\n
+          TEMPLATENAME = \"General_Purpose.dbc\"\n
+          SYSPASSWORD = {{ vmpassword }}\n
+          SYSTEMPASSWORD = {{ vmpassword }}\n
+          EMCONFIGURATION = DBEXPRESS\n
+          EMEXPRESSPORT = \"5500\"\n
+          DATAFILEDESTINATION = /oradata\n
+          RECOVERYAREADESTINATION = /rman\n
+          CHARACTERSET = US7ASCII\n
+          NATIONALCHARACTERSET = \"UTF8\"\n
+          MEMORYPERCENTAGE = \"80\"\n
+          AUTOMATICMEMORYMANAGEMENT = \"FALSE\"\n
+          TOTALMEMORY = 65024\n"
+    - name: Create Database
+      command: '/oracle/app/oracle/product/12.1.0.2/dbhome_1/bin/dbca -silent -responseFile /oracle/app/installation/dbca.rsp'
+    - name: Create Oracle Home Variable
+      lineinfile: dest='/home/oracle/.bashrc' line='export ORACLE_HOME=/oracle/app/oracle/product/12.1.0.2/dbhome_1'
+    - name: Create Oracle Sid Variable
+      lineinfile: dest='/home/oracle/.bashrc' line='export ORACLE_SID=orc1'
+    - name: Add Oracle Home Bin Folder
+      lineinfile: dest='/home/oracle/.bashrc' line='export PATH=$PATH:$ORACLE_HOME/bin'
+    - name: Change oratab
+      lineinfile: dest='/etc/oratab' regexp='^ora1:/oracle/app/oracle/product/12.1.0.2/dbhome_1:N' line='ora1:/oracle/app/oracle/product/12.1.0.2/dbhome_1:Y'
+      become_user: root
+    - name: Create init.d Oracle Script in /etc/init.d
+      copy:
+        dest: /etc/init.d/oradb
+        mode: 750
+        content: "
+          #!/bin/sh\n
+          # chkconfig: 345 99 10\n
+          # description: Oracle auto start-stop script.\n
+          ORACLE_HOME=/oracle/app/oracle/product/12.1.0.2/dbhome_1/\n
+          ORACLE=oracle\n
+          PATH=${PATH}:$ORACLE_HOME/bin\n
+          export ORACLE_HOME PATH\n
+          case $1 in \n
+          'start')\n
+          runuser -l $ORACLE -c '$ORACLE_HOME/bin/dbstart $ORACLE_HOME &'\n
+          touch /var/lock/subsys/dbora\n
+          ;;\n
+          'stop')\n
+          runuser -l $ORACLE -c '$ORACLE_HOME/bin/dbshut $ORACLE_HOME'\n
+          rm -f /var/lock/subsys/dbora\n
+          ;;\n
+          *)\n
+          echo \"usage: $0 {start|stop}\"\n
+          exit\n
+          ;;\n
+          esac\n
+          exit\n"
+      become_user: root
+    - name: Enable oradb Script to Run at Startup
+      command: 'chkconfig --add oradb'
+      become_user: root
+    - name: Create Huge Pages Setting Script
+      copy:
+        dest: ~/hugepages_settings.sh
+        mode: 755
+        content: "
+          KERN=`uname -r | awk -F. '{ printf(\"%d.%d\\n\",$1,$2); }'`\n
+          HPG_SZ=`grep Hugepagesize /proc/meminfo | awk {'print $2'}`\n
+          NUM_PG=1\n
+          for SEG_BYTES in `ipcs -m | awk {'print $5'} | grep \"[0-9][0-9]*\"`\n
+          do\n
+          \tMIN_PG=`echo \"$SEG_BYTES/($HPG_SZ*1024)\" | bc -q`\n
+          \t\tif [ $MIN_PG -gt 0 ]; then\n
+          \t\t\tNUM_PG=`echo \"$NUM_PG+$MIN_PG+1\" | bc -q`\n
+          \tfi\n
+          done\n
+          case $KERN in\n
+          \t'2.4') HUGETLB_POOL=`echo \"$NUM_PG*$HPG_SZ/1024\" | bc -q`;\n
+          \t\techo \"Recommended setting: vm.hugetlb_pool = $HUGETLB_POOL\" ;;\n
+          \t'2.6' | '3.8' | '3.10' | '4.1' ) echo \"$NUM_PG\" ;;\n
+          \t\t*) echo \"Unrecognized kernel version $KERN. Exiting.\" ;;\n
+          esac\n"
+      become_user: root
+    - name: Discover HugePages setting
+      shell: ~/hugepages_settings.sh
+      register: hpsettings
+      become_user: root
+    - name: Configure HugePages
+      sysctl:
+        name: vm.nr_hugepages
+        value: "{{ hpsettings.stdout }}"
+        state: present
+      become_user: root

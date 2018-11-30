@@ -1,0 +1,8 @@
+- name: Deploy, Install and Configure Oracle 12c Server
+  hosts: localhost
+- name: Deploy Azure Infrastructure Resources
+  import_playbook: deploy-infra.yml
+- name: Prepare VM for Oracle
+  import_playbook: configure-ora-server.yml
+- name: Install and Configure Oracle 12c EE
+  import_playbook: install-configure-ora.yml

@@ -1,0 +1,9 @@
+privateip: <Static Private IP in Subnet>
+location: <Azure DC Location>
+resourcegroup: <DB Server Resource Group Name>
+vmname: <DB Server name>
+existingvnet: <vNet Name>
+vnetresourcegroup: <vNet Resource Group Name>
+subnet: <oracle DB server subnet name>
+vmsize: Standard_F8_v2
+oraclebin1: "<oracle software URL>"
