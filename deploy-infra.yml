@@ -1,4 +1,4 @@
-- name: Create Oracle DB VM for Cenovus
+- name: Create Oracle DB VM
   hosts: localhost
   connection: local
   vars_files:
